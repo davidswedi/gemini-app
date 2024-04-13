@@ -1,109 +1,49 @@
-import { environment } from './../environments/environment.development';
-import { Component, inject } from '@angular/core';
-import { RouterOutlet } from '@angular/router';
-import { ChatComponent } from './chat/chat.component';
+import { Message } from './../interface/message';
 import {
-  GenerateContentRequest,
+  Component,
+  ElementRef,
+  Renderer2,
+  ViewChild,
+  inject,
+  signal,
+} from '@angular/core';
+import {
   GoogleGenerativeAI,
-  HarmBlockThreshold,
   HarmCategory,
+  HarmBlockThreshold,
 } from '@google/generative-ai';
-import { FileConversionServiceService } from './file-conversion-service.service';
+import { FontAwesomeModule } from '@fortawesome/angular-fontawesome';
+import { faUser } from '@fortawesome/free-regular-svg-icons';
+import { faIcons } from '@fortawesome/free-solid-svg-icons';
+import { environment } from '../../environments/environment.development';
+import { CommonModule } from '@angular/common';
+
 @Component({
-  selector: 'app-root',
+  selector: 'app-chat',
   standalone: true,
-  imports: [RouterOutlet, ChatComponent],
-  templateUrl: './app.component.html',
-  styleUrl: './app.component.scss',
+  imports: [FontAwesomeModule, CommonModule],
+  templateUrl: './chat.component.html',
+  styleUrl: './chat.component.scss',
 })
-export class AppComponent {
-  title = 'gemini-app';
-  fileConvService = inject(FileConversionServiceService);
-  ngOnInit() {
-    // this.TestGeminiPro();
-    // this.TestGeminiProvisionImages();
-    this.TestGeminiChat();
+export class ChatComponent {
+  messageList: Message[] = [];
+  faUser = faUser;
+  @ViewChild('message') message!: any;
+  @ViewChild('container', { static: true }) container!: ElementRef;
+  renderer = inject(Renderer2);
+
+  scrollToBottom() {
+    this.renderer.setProperty(
+      this.container.nativeElement,
+      'scrollTop',
+      this.container.nativeElement.scrollHeight
+    );
   }
-  async TestGeminiPro() {
-    //Initialize the model with your API key
-    const genAi = new GoogleGenerativeAI(environment.API_KEY);
-    // Setting up model parameters for generation with safety settings and max output tokens limit
-    const generationConfig = {
-      safetySettings: [
-        {
-          category: HarmCategory.HARM_CATEGORY_HARASSMENT,
-          threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-        },
-      ],
-      maxOutputTokens: 100,
-    };
-    // Choosing a gemini model
-    const model = genAi.getGenerativeModel({
-      model: 'gemini-pro',
-      ...generationConfig,
-    });
-
-    // Make a prompt for the model
-    const prompt = 'Make a peom of The angular Framework';
-
-    //generate the content with the prompt
-    const result = await model.generateContent(prompt);
-    const response = result.response;
-    // console.log(response.candidates?.[0].content.parts[0].text);
-    console.log(response.text());
-  }
-
-  // Generate text from text-and-images imput
-  async TestGeminiProvisionImages() {
-    try {
-      let imageBased64 = await this.fileConvService.convertToBase64(
-        './assets/Dog2.jpg'
-      );
-
-      if (typeof imageBased64 !== 'string') {
-        console.error('image conversion to base64 failed');
-        return;
-      }
-      //Initialize the model with your API key
-      const genAi = new GoogleGenerativeAI(environment.API_KEY);
-      // Setting up model parameters for generation with safety settings and max output tokens limit
-      const generationConfig = {
-        safetySettings: [
-          {
-            category: HarmCategory.HARM_CATEGORY_HARASSMENT,
-            threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-          },
-        ],
-        maxOutputTokens: 100,
-      };
-      // Choosing a gemini model
-      const model = genAi.getGenerativeModel({
-        model: 'gemini-pro',
-        ...generationConfig,
-      });
-      //model initialization missing for brevity
-      let prompt = [
-        {
-          inlineData: {
-            mimeType: 'image/jpeg',
-            data: imageBased64,
-          },
-        },
-        {
-          text: 'Describethe the image',
-        },
-      ];
-      const result = await model.generateContent(prompt);
-      const response = await result.response;
-      console.log(response.text());
-    } catch (error) {
-      console.error('Error converting the image to base64', error);
-    }
-  }
-
-  //Multi-turn conversion chat
-
+  chat!: string;
+  text!: string;
+  isLoading = false;
   async TestGeminiChat() {
+    this.isLoading = true;
     //Initialize the model with your API key
     const genAi = new GoogleGenerativeAI(environment.API_KEY);
     // Setting up model parameters for generation with safety settings and max output tokens limit
@@ -176,9 +116,65 @@ export class AppComponent {
     //   console.log(item.text());
     // }
     // console.log('Agragated response :' + (await streamingResp.response).text());
-    const prompt = 'Hello , What is the largest country in the world?';
-    const result = await chat.sendMessage(prompt);
-    const response = result.response;
-    console.log(response.text());
+    const sendMessage = this.message.nativeElement.value;
+    this.chat = sendMessage;
+    this.message.nativeElement.value = '';
+
+    const result = await chat.sendMessage(this.chat);
+    let response = result.response;
+    // this.text = this.formatText(response.text());
+
+    this.text = response.text();
+    // add message to the array message
+    this.isLoading = false;
+    this.scrollToBottom();
+    this.addMessage(this.chat, this.text);
+  }
+  addMessage(clientMessage: string, geminiResponse: string) {
+    this.messageList.push({ clientMessage, geminiResponse });
+  }
+  // put a part of text in bold if it is between two *
+  formatText(text: string) {
+    let formattedText = text;
+    let startIndex = 0;
+
+    while (formattedText.indexOf('*', startIndex) !== -1) {
+      const asteriskIndex = formattedText.indexOf('*', startIndex);
+      const closingAsteriskIndex = formattedText
+        .slice(asteriskIndex + 1)
+        .indexOf('*');
+
+      if (closingAsteriskIndex !== -1) {
+        const boldText = formattedText.slice(
+          asteriskIndex + 1,
+          asteriskIndex + closingAsteriskIndex + 1
+        );
+        formattedText = formattedText.replace(
+          boldText,
+          `<b>${boldText.replace(/\*/g, '')}</b>`
+        ); // Replace all instances of * with empty string
+      }
+
+      startIndex = asteriskIndex + 1;
+    }
+
+    return formattedText;
+  }
+
+  todos = signal([
+    {
+      task: 'Work',
+      done: false,
+    },
+    {
+      task: 'Swim',
+      done: false,
+    },
+  ]);
+
+  taskdone() {
+    const updatedTodo = this.todos().map((todo, index) => {
+      index == 0 ? { ...todo, done: true } : todo;
+    });
   }
 }
